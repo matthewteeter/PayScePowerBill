@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PayPowerBill": {
+      "commandName": "Project"
+    },
+    "Docker": {
+      "commandName": "Docker"
+    }
+  }
+}
