@@ -5,13 +5,19 @@ using Microsoft.Playwright;
 using System;
 using System.Threading.Tasks;
 
-Console.WriteLine("Starting SCE payment program...");
+if (args.Any() && args?[0] == "install")
+{
+    Console.WriteLine(Microsoft.Playwright.Program.Main(new[] { "install", "webkit" }));
+    Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install-deps", "webkit" }));
+}
+bool inDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+Console.WriteLine(!inDocker ? "Starting SCE payment program..." : "Starting SCE payment program in headless mode...");
 using IHost host = Host.CreateDefaultBuilder(args).UseEnvironment("Development").Build(); //enable user secrets in Development
 // if running locally, you can set the parameters using dotnet user-secrets. If docker, pass in via Env Vars.
 IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
 
 using var playwright = await Playwright.CreateAsync();
-await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false, });
+await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions { Headless = inDocker });
 var context = await browser.NewContextAsync();
 
 var page = await context.NewPageAsync();
