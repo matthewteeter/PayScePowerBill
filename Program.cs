@@ -5,10 +5,12 @@ using Microsoft.Playwright;
 using System;
 using System.Threading.Tasks;
 
+using var playwright = await Playwright.CreateAsync();
+var b = playwright.Firefox;
 if (args.Any() && args?[0] == "install")
 {
-    Console.WriteLine(Microsoft.Playwright.Program.Main(new[] { "install", "webkit" }));
-    Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install-deps", "webkit" }));
+    Console.WriteLine(Microsoft.Playwright.Program.Main(new[] { "install", b.Name }));
+    Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install-deps", b.Name }));
 }
 bool inDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 Console.WriteLine(!inDocker ? "Starting SCE payment program..." : "Starting SCE payment program in headless mode...");
@@ -16,8 +18,8 @@ using IHost host = Host.CreateDefaultBuilder(args).UseEnvironment("Development")
 // if running locally, you can set the parameters using dotnet user-secrets. If docker, pass in via Env Vars.
 IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
 
-using var playwright = await Playwright.CreateAsync();
-await using var browser = await playwright.Webkit.LaunchAsync(new BrowserTypeLaunchOptions { Headless = inDocker });
+
+await using var browser = await b.LaunchAsync(new BrowserTypeLaunchOptions { Headless = inDocker });
 var context = await browser.NewContextAsync();
 
 var page = await context.NewPageAsync();
@@ -29,8 +31,6 @@ await page.Locator(".sceTextBox__sceFormContainer__VMuuU").First.ClickAsync();
 await page.GetByLabel("userName").FillAsync(config["SceEmail"]);
 
 await page.GetByLabel("userName").PressAsync("Tab");
-
-//await page.GetByText("ErrorPassword hint: at least 8 characters, 1 number, 1 uppercase,and 1 lowercase").PressAsync("Shift+Tab");
 
 await page.GetByRole(AriaRole.Button, new() { Name = "Show" }).PressAsync("Shift+Tab");
 
