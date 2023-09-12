@@ -16,11 +16,13 @@ RUN dotnet publish "PayPowerBill.csproj" -c Release -o /app/publish
 
 FROM base AS final
 USER root
+# Using this dependency list vs relying on Playwright's saves over 500MB in image size (uncompressed)
+RUN apt-get update && apt-get -y install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+	libgbm1 libasound2 libatspi2.0-0 libcups2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 \
+	libx11-xcb1 libxcursor1 libgtk-3-0 libpangocairo-1.0-0 libcairo-gobject2 libgdk-pixbuf-2.0-0 libdbus-glib-1-2 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=publish /app/publish .
 #Need to trigger Playwright install thru code to avoid dependency on sdk in final image - see www.meziantou.net/distributing-applications-that-depend-on-microsoft-playwright.htm
-#The other advantage of this is we don't need to track/specify the Linux deps needed - playwright will install those for us.
-
 RUN dotnet /app/PayPowerBill.dll install
 #USER app   #Playwright seems to require root at this time
 ENTRYPOINT ["dotnet", "PayPowerBill.dll"]

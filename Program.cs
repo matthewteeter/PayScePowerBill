@@ -9,8 +9,8 @@ using var playwright = await Playwright.CreateAsync();
 var b = playwright.Firefox;
 if (args.Any() && args?[0] == "install")
 {
-    Console.WriteLine(Microsoft.Playwright.Program.Main(new[] { "install", b.Name }));
-    Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install-deps", b.Name }));
+    Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install", b.Name }));
+    //Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install-deps", b.Name }));
 }
 bool inDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 Console.WriteLine(!inDocker ? "Starting SCE payment program..." : "Starting SCE payment program in headless mode...");
