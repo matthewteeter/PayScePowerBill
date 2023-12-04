@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Playwright;
 using System;
 using System.Threading.Tasks;
+using HcpVaultSecretsConfigProvider;
 
 using var playwright = await Playwright.CreateAsync();
 var b = playwright.Firefox;
@@ -14,96 +15,30 @@ if (args.Any() && args?[0] == "install")
 }
 bool inDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
 Console.WriteLine(!inDocker ? "Starting SCE payment program..." : "Starting SCE payment program in headless mode...");
-using IHost host = Host.CreateDefaultBuilder(args).UseEnvironment("Development").Build(); //enable user secrets in Development
+using IHost host = Host.CreateDefaultBuilder(args)
+                       .UseEnvironment("Development") //enable user secrets in Development for local overrides
+                       .ConfigureAppConfiguration(config => config.AddHcpVaultSecretsConfiguration(config.Build())).Build(); 
 // if running locally, you can set the parameters using dotnet user-secrets. If docker, pass in via Env Vars.
 IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
 
-
 await using var browser = await b.LaunchAsync(new BrowserTypeLaunchOptions { Headless = inDocker });
 var context = await browser.NewContextAsync();
-
 var page = await context.NewPageAsync();
 
-await page.GotoAsync("https://www.sce.com/");
-
-await page.Locator(".sceTextBox__sceFormContainer__VMuuU").First.ClickAsync();
-
-await page.GetByLabel("userName").FillAsync(config["SceEmail"]);
-
-await page.GetByLabel("userName").PressAsync("Tab");
-
-await page.GetByRole(AriaRole.Button, new() { Name = "Show" }).PressAsync("Shift+Tab");
-
-await page.GetByLabel("password", new() { Exact = true }).ClickAsync();
-
-await page.GetByLabel("password", new() { Exact = true }).FillAsync(config["ScePassword"]);
-
-await page.GetByLabel("password", new() { Exact = true }).PressAsync("Enter");
-
-await Task.Delay(10000);
-
-//check balance - if zero exit successfully
-await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"]);
-
-//await page.GotoAsync("https://www.sce.com/");
-
-await page.GotoAsync("https://www.sce.com/mysce/myaccount");
-
+await LoginToSce(config["SceEmail"] ?? string.Empty, config["ScePassword"] ?? string.Empty, page);
+await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"] ?? "1"); //check balance to avoid using CC if fee outweighs cashback
 var page1 = await page.RunAndWaitForPopupAsync(async () =>
 {
     await page.GetByRole(AriaRole.Link, new() { Name = "More Ways to Pay" }).ClickAsync();
 });
-
-var page2 = await page1.RunAndWaitForPopupAsync(async () =>
-{
-    await page1.GetByRole(AriaRole.Link, new() { Name = "Pay with Debit/Credit Card" }).ClickAsync();
-});
-
-await page2.GetByLabel("Southern California Edison Account Number*:").FillAsync(config["SceAccountNum"]);
-
-await page2.GetByLabel("Southern California Edison Account Number*:").PressAsync("Tab");
-
-await page2.GetByLabel("Web Password*:").FillAsync(config["Zip"]);
-
-await page2.GetByLabel("Web Password*:").PressAsync("Enter");
-
-await Task.Delay(15000);
-
-await page2.GetByLabel("Email Address*:").ClickAsync();
-
-await page2.GetByLabel("Email Address*:").FillAsync(config["SceEmail"]);
-
-await page2.GetByLabel("Email Address*:").PressAsync("Enter");
-
-//await page2.Locator("#autoSavedAccountId").ClickAsync();
-
-//await page2.Locator("#savedAccountSection div").Filter(new() { HasText = "Saved Account*:" }).ClickAsync();
-
-await page2.GetByLabel("Credit/Debit/ATM Card\n        \n        \n          Debit Card\n        \n        \n          Debit/ATM Card\n        \n        \n          Credit/Debit Card\n        \n        \n          ATM Card").CheckAsync();
-
-await page2.Locator("#ajaxcreditcardMasked").ClickAsync();
-
-await page2.Locator("#ajaxcreditcardMasked").FillAsync(config["CardNum"]);
-
-await page2.Locator(".linecompressedindent > div:nth-child(2)").ClickAsync();
-
-await page2.GetByRole(AriaRole.Textbox, new() { Name = "Cardholder Name*:" }).ClickAsync();
-
-await page2.GetByRole(AriaRole.Textbox, new() { Name = "Cardholder Name*:" }).FillAsync(config["CardholderName"]);
-
-await page2.GetByRole(AriaRole.Textbox, new() { Name = "Cardholder Name*:" }).PressAsync("Tab");
-
-await page2.GetByTitle("Expiration Date Month").SelectOptionAsync(new[] { (int.Parse(config["ExpiryMonth"]) - 1).ToString() });
-
-await page2.GetByTitle("Expiration Date Year").SelectOptionAsync(new[] { config["ExpiryYear"] });
-
-await page2.GetByRole(AriaRole.Button, new() { Name = "Continue" }).ClickAsync();
-//can't test this yet.
-await page2.Locator("#cvd").ClickAsync();
-
-await page2.Locator("#cvd").FillAsync(config["Code"]);
-
-await page2.GetByRole(AriaRole.Button, new() { Name = "Confirm" }).ClickAsync();
+await page1.GetByRole(AriaRole.Button, new() { Name = "Pay with card" }).ClickAsync();
+await SelectAccount(page1);
+await SelectPaymentMethod(page1);
+//await AddPaymentMethod(page1, config["CardNum"] ?? string.Empty, config["Code"] ?? string.Empty,
+//                        config["ExpiryMonth"] ?? string.Empty, config["ExpiryYear"] ?? string.Empty, 
+//                        config["CardholderName"] ?? string.Empty, config["Zip"] ?? string.Empty);
+await ReviewPaymentAndConfirm(page1);
+Console.WriteLine("Finished payment program.");
 
 static async Task ExitIfZeroBalanceDueOrLessThanMinimum(IPage page, string dontPayIfUnder = "")
 {
@@ -143,4 +78,85 @@ static async Task ExitIfZeroBalanceDueOrLessThanMinimum(IPage page, string dontP
     {
         Console.WriteLine("Unable to determine balance due.");
     }
+}
+
+static async Task LoginToSce(string username, string password, IPage page)
+{
+    Console.WriteLine("Preparing to log into SCE.com...");
+    if(string.IsNullOrWhiteSpace(username))
+    {
+        throw new ApplicationException("Can't log in to SCE.com because SceEmail was empty!");
+    }
+    if (string.IsNullOrWhiteSpace(password))
+    {
+        throw new ApplicationException("Can't log in to SCE.com because ScePassword was empty!");
+    }
+    await page.GotoAsync("https://www.sce.com/mysce/myaccount");
+
+    await page.GetByPlaceholder("User ID/Email").ClickAsync();
+    await page.GetByPlaceholder("User ID/Email").FillAsync(username);
+
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "password" }).ClickAsync();
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "password" }).FillAsync(password);
+
+    await page.GetByRole(AriaRole.Button, new() { Name = "Log In", Exact = true }).ClickAsync();
+    Console.WriteLine($"Logging into SCE as {username}...");
+    await Task.Delay(8000);
+}
+
+async Task SelectAccount(IPage page)
+{
+    //For now, assume the user only has 1 residence and 1 power bill account. Pick the only option.
+    await page.GetByText("RESIDENTIAL PAYMENT #").ClickAsync();
+    Console.WriteLine("Selecting account (assuming the first one)...");
+    await page.GetByLabel("Continue to provide payment").ClickAsync();
+    Console.WriteLine("Clicking continue to payment...");
+    await Task.Delay(8000); // it loads this with ajax so need to wait
+}
+
+async Task SelectPaymentMethod(IPage page)
+{
+    Console.WriteLine("Checking payment card is available...");
+    ILocator cardLocator = page.GetByText("| Exp");
+    int numCards = await cardLocator.CountAsync();
+    if (numCards < 1)
+    {
+        throw new ApplicationException("No saved payment cards found in Wallet. Please add one to your account before running this program.");
+    }
+    //assume we want to pay with the first payment method that is selected by default
+}
+//TODO: remove this after testing confirms we don't need it
+async Task AddPaymentMethod(IPage page, string cardNum, string cvv, string month, string year, string name, string zip)
+{
+    await page.GetByRole(AriaRole.Link, new() { Name = "Add Payment method" }).ClickAsync();
+    await page.GetByRole(AriaRole.Link, new() { Name = "Credit" }).ClickAsync();
+
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "Card Number" }).ClickAsync();
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "Card Number" }).FillAsync(cardNum);
+
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "CVV " }).ClickAsync();
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "CVV " }).FillAsync(cvv);
+
+    await page.GetByRole(AriaRole.Group, new() { Name = "Expiration Date" }).GetByLabel("Month").SelectOptionAsync(new[] { month });
+    await page.GetByRole(AriaRole.Group, new() { Name = "Expiration Date" }).GetByLabel("Year").SelectOptionAsync(new[] { year });
+
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "Card Holder Name" }).ClickAsync();
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "Card Holder Name" }).FillAsync(name);
+
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "ZIP Code" }).ClickAsync();
+    await page.GetByRole(AriaRole.Textbox, new() { Name = "ZIP Code" }).FillAsync(zip);
+
+    await page.GetByText("I authorize payment and agree").First.ClickAsync();
+
+    await page.GetByRole(AriaRole.Link, new() { Name = "Add", Exact = true }).ClickAsync();
+}
+
+async Task ReviewPaymentAndConfirm(IPage page)
+{
+    await page.GetByLabel("Continue to confirm payment").ClickAsync();
+    Console.WriteLine("Clicking continue...");
+    await Task.Delay(5000);
+    Console.WriteLine("Clicking Pay...");
+    await page.GetByRole(AriaRole.Link, new() { Name = "Pay $" }).ClickAsync();
+    await Task.Delay(8000);
 }
