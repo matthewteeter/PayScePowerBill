@@ -5,17 +5,17 @@ Southern California Edison doesn't allow scheduled autopay when paying with cred
 
 ## Click-Ops Payment Process
 For the past 10 years, the payment site required typing various credit card details each time manually, clicking through many screens, etc.
-This was addressed in November 2023, finally allowing saved payment cards. Still, the need to automate logging in, clicking through screens etc is still there to approach an autopay-like convenience.
+This was addressed in November 2023, finally allowing saved payment cards. Still, to approach autopay-like convenience, we'd need to automate logging in, clicking through screens, etc. This program automates all that, allowing bill payment to be automated.
 
 ## Solution
-This program automates a browser to go to SCE's website and pay the bill using a pre-saved credit card. If running locally, it automates a browser and you can see what it's doing. If running in Docker, it operates headlessly.
+This program controls a browser, navigates through SCE's website, and pays your bill using the first pre-saved credit card. If running locally, it automates a browser and you can see what it's doing. If running in Docker, it operates headlessly.
 Schedule this program to run once a month (or more often, as it does nothing if 0 balance due), using Task Scheduler, cron, K8s CronJobs, etc.
 Pass it parameters via command line, environment variable, or config file. 
 
 ### Features
 * Optionally integrates with HCP Vault Secrets, a free SaaS secrets vault
 * Configurable value to only pay bill if cash back would outweigh the credit card fee
-* Runs as a native executable on Windows, Mac, Linux, or as a Docker container on Linux (235MB image)
+* Runs as a native executable (requires .NET runtime) on Windows, Mac, Linux, or as a Docker container on Linux (235MB image)
 
 ## Usage
 See the appsettings.json file for the settings which can be configured.
