@@ -30,8 +30,9 @@ You will likely want to pass the parameters in as env vars, such as like this:
 ```docker run -e SceEmail=you@bla.com ScePassword=your_sce_pw synerynx/payscepowerbill```
 
 ### Store SCE account credentials in HCP Vault Secrets
-To retrieve secrets from HCP Vault Secrets service, set the following config items:
+To retrieve secrets from HCP Vault Secrets service, set the following config items and ensure your app's secrets are named SceEmail and ScePassword:
 ```docker run -e HCP_CLIENT_ID=<your_hcp_id> -e HCP_CLIENT_SECRET=<your_hcp_client_secret> -e HcpVaultSecrets__ProjectId=<vault_secrets_proj_id> -e HcpVaultSecrets__OrgId=<vault_secrets_org_id> -e HcpVaultSecrets__AppName=<vault_secrets_app> synerynx/payscepowerbill```
+For more details on how this HCP Vault Secrets provider works, see the [config provider](https://github.com/matthewteeter/HcpVaultSecretsConfigProvider).
 
 ## Troubleshooting
 The best way to troubleshoot is to run the local executable and watch what the browser is doing, as well as the command line output.
