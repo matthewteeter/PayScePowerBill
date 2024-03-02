@@ -39,15 +39,15 @@ Console.WriteLine("Finished payment program.");
 static async Task ExitIfZeroBalanceDueOrLessThanMinimum(IPage page, string dontPayIfUnder = "")
 {
     string rawHomepageText = await page.Locator("#your_account_balance").InnerTextAsync();
-    string pattern = @"Amount Due on \D\D\D\s\d\d\s*\$(\d+?\.\d\d)"; //expect 1 match and 1 group
+    string pattern = @"(Amount Due on \D\D\D\s\d\d\s*)?\$(\d+?\.\d\d)"; //expect 1 match and 2 groups
     RegexOptions options = RegexOptions.Multiline;
     Match m = Regex.Matches(rawHomepageText, pattern, options).FirstOrDefault();
-    if(m?.Groups?.Count != 2)
+    if(m?.Groups?.Count != 3)
     {
         Console.WriteLine($"Unable to parse homepage for balance due: {rawHomepageText}");
         Environment.Exit(1);
     }
-    string rawBalance = m.Groups[1].Value;
+    string rawBalance = m.Groups[2].Value;
     decimal balance = decimal.MinusOne;
     if (!string.IsNullOrWhiteSpace(rawBalance))
     {
