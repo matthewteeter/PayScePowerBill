@@ -28,7 +28,7 @@ var page = await context.NewPageAsync();
 await LoginToSce(config["SceEmail"] ?? string.Empty, config["ScePassword"] ?? string.Empty, page);
 await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"] ?? "1"); //check balance to avoid using CC if fee outweighs cashback
 
-await page.GetByRole(AriaRole.Link, new() { Name = "Do Not Show Me Again" }).ClickAsync();//this popup may go away in the future
+//await page.GetByRole(AriaRole.Link, new() { Name = "Do Not Show Me Again" }).ClickAsync();//this popup may go away in the future
 await page.GetByRole(AriaRole.Button, new() { Name = "Make a Payment" }).ClickAsync();
 await page.GetByRole(AriaRole.Button, new() { Name = "Pay by Card" }).ClickAsync();
 await SelectAccount(page);
