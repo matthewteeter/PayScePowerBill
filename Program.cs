@@ -27,14 +27,27 @@ var page = await context.NewPageAsync();
 
 await LoginToSce(config["SceEmail"] ?? string.Empty, config["ScePassword"] ?? string.Empty, page);
 await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"] ?? "1"); //check balance to avoid using CC if fee outweighs cashback
+await DismissModalIfFound(page);
 
-//await page.GetByRole(AriaRole.Link, new() { Name = "Do Not Show Me Again" }).ClickAsync();//this popup may go away in the future
 await page.GetByRole(AriaRole.Button, new() { Name = "Make a Payment" }).ClickAsync();
 await page.GetByRole(AriaRole.Button, new() { Name = "Pay by Card" }).ClickAsync();
 await SelectAccount(page);
 await SelectPaymentMethod(page);
 await ReviewPaymentAndConfirm(page);
 Console.WriteLine("Finished payment program.");
+
+async Task DismissModalIfFound(IPage page)
+{
+    Console.Write("Checking for modal dialog...");
+    ILocator buttonLocator = page.Locator("a#DSSdismiss");
+    bool isButtonVisible = await buttonLocator.IsVisibleAsync();
+    Console.WriteLine(isButtonVisible);
+    if(isButtonVisible)
+    {
+        Console.WriteLine("Clicking Close on modal...");
+        await buttonLocator.ClickAsync();
+    }
+}
 
 static async Task ExitIfZeroBalanceDueOrLessThanMinimum(IPage page, string dontPayIfUnder = "")
 {
