@@ -7,10 +7,11 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runners: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runners }}
     steps:
     - name: Login to Docker Hub
       uses: docker/login-action@v2
@@ -19,8 +20,9 @@ jobs:
         password: ${{ secrets.DockerhubPass }}
     - uses: actions/checkout@v4
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag synerynx/payscepowerbill:1.0.${{ github.run_number }} --tag synerynx/payscepowerbill:latest
+    #  run: docker buildx build --pull --push -t synerynx/payscepowerbill:1.0.${{ github.run_number }} --platform linux/arm64,linux/amd64 -t synerynx/payscepowerbill:latest .
+      run: docker build . --file Dockerfile --tag synerynx/payscepowerbill:1.0.${{ github.run_number }}-${{matrix.runners}} --tag synerynx/payscepowerbill:latest-${{matrix.runners}}
     - name: Push
-      run: docker push synerynx/payscepowerbill:1.0.${{ github.run_number }}
+      run: docker push synerynx/payscepowerbill:1.0.${{ github.run_number }}-${{matrix.runners}}
     - name: Push latest
-      run: docker push synerynx/payscepowerbill:latest
+      run: docker push synerynx/payscepowerbill:latest-${{matrix.runners}}
