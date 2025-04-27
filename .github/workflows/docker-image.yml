@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  REGISTRY_IMAGE: synerynx/payscepowerbill
+
 jobs:
   build:
     strategy:
@@ -17,17 +20,35 @@ jobs:
       run: |
         runner=${{ matrix.runners }}
         if [[ "$runner" == *"-arm" ]]; then
-            ARCH="arm64"
+            echo "ARCH=arm64" >> $GITHUB_ENV
         else
-            ARCH="amd64"
+            echo "ARCH=amd64" >> $GITHUB_ENV
         fi
         echo "$ARCH"
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY_IMAGE }}
     - name: Login to Docker Hub
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         username: ${{ secrets.DockerhubUser }}
         password: ${{ secrets.DockerhubPass }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
     - uses: actions/checkout@v4
+  
+    - name: Build and push by digest
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        #platforms: ${{ matrix.platform }}
+        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ env.REGISTRY_IMAGE }}
+        outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+
     - name: Build the Docker image
     #  run: docker buildx build --pull --push -t synerynx/payscepowerbill:1.0.${{ github.run_number }} --platform linux/arm64,linux/amd64 -t synerynx/payscepowerbill:latest .
       run: docker build . --file Dockerfile --tag synerynx/payscepowerbill:1.0.${{ github.run_number }}-${{env.ARCH}} --tag synerynx/payscepowerbill:latest-${{env.ARCH}}
