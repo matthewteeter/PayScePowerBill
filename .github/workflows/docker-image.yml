@@ -37,8 +37,6 @@ jobs:
         password: ${{ secrets.DockerhubPass }}
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
-    - uses: actions/checkout@v4
   
     - name: Build and push by digest
       id: build
