@@ -106,13 +106,13 @@ static async Task LoginToSce(string username, string password, IPage page)
     }
     await page.GotoAsync("https://www.sce.com/mysce/myaccount");
 
-    await page.GetByPlaceholder("User ID/Email").ClickAsync();
-    await page.GetByPlaceholder("User ID/Email").FillAsync(username);
+    await page.GetByPlaceholder("Email address").ClickAsync();
+    await page.GetByPlaceholder("Email address").FillAsync(username);
 
     await page.GetByRole(AriaRole.Textbox, new() { Name = "password" }).ClickAsync();
     await page.GetByRole(AriaRole.Textbox, new() { Name = "password" }).FillAsync(password);
 
-    await page.GetByRole(AriaRole.Button, new() { Name = "Log In", Exact = true }).ClickAsync();
+    await page.GetByRole(AriaRole.Button, new() { Name = "LOG IN", Exact = true }).ClickAsync();
     Console.WriteLine($"Logging into SCE as {username}...");
     await Task.Delay(8000);
 }
