@@ -31,6 +31,7 @@ await DismissModalIfFound(page);
 
 await page.GetByRole(AriaRole.Button, new() { Name = "Make a Payment" }).ClickAsync();
 await page.GetByRole(AriaRole.Button, new() { Name = "Pay by Card" }).ClickAsync();
+await Task.Delay(10000); //let the payment page load
 await SelectAccount(page);
 await SelectPaymentMethod(page);
 await ReviewPaymentAndConfirm(page);
