@@ -1,9 +1,9 @@
 #syntax=docker/dockerfile:1
-FROM mcr.microsoft.com/dotnet/runtime:8.0-jammy AS base
+FROM mcr.microsoft.com/dotnet/runtime:10.0-jammy AS base
 USER app
 WORKDIR /app
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 COPY ["PayPowerBill.csproj", "."]
 RUN dotnet restore "./PayPowerBill.csproj"
