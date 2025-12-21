@@ -142,7 +142,7 @@ async Task SelectPaymentMethod(IPage page)
 
 async Task ReviewPaymentAndConfirm(IPage page)
 {
-    await page.GetByRole(AriaRole.Link, new() { Name = "Continue" }).Nth(1).ClickAsync();
+    await page.GetByRole(AriaRole.Link, new() { Name = "Continue" }).ClickAsync();
     Console.WriteLine("Clicking continue...");
     await Task.Delay(5000);
     Console.WriteLine("Clicking Pay...");
