@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Playwright;
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using HcpVaultSecretsConfigProvider;
 using System.Text.RegularExpressions;
@@ -21,13 +22,15 @@ using IHost host = Host.CreateDefaultBuilder(args)
 // if running locally, you can set the parameters using dotnet user-secrets. If docker, pass in via Env Vars.
 IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
 
-await using var browser = await b.LaunchAsync(new BrowserTypeLaunchOptions { Headless = inDocker });
 const string windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0";
-var context = await browser.NewContextAsync(new BrowserNewContextOptions
-{
-    UserAgent = windowsUserAgent
-});
-var page = await context.NewPageAsync();
+var browserSetup = await LaunchBrowserContextWithPersistenceAsync(
+    b,
+    inDocker,
+    windowsUserAgent,
+    config["PlaywrightUserDataDir"]);
+await using var browser = browserSetup.Browser;
+await using var context = browserSetup.Context;
+var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
 
 await LoginToSce(config["SceEmail"] ?? string.Empty, config["ScePassword"] ?? string.Empty, page);
 await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"] ?? "1"); //check balance to avoid using CC if fee outweighs cashback
@@ -35,7 +38,7 @@ await DismissModalIfFound(page);
 
 await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "Make a Payment" }));
 await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "Pay by Card" }));
-await PauseBetweenActionsAsync(14000, 19000); //let the payment page load
+await PauseBetweenActionsAsync(14000, 28000); //let the payment page load
 await SelectAccount(page);
 await SelectPaymentMethod(page);
 await ReviewPaymentAndConfirm(page);
@@ -119,29 +122,29 @@ static async Task LoginToSce(string username, string password, IPage page)
 
     await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "LOG IN", Exact = true }));
     Console.WriteLine($"Logging into SCE as {username}...");
-    await PauseBetweenActionsAsync(12000, 17000);
+    await PauseBetweenActionsAsync(12000, 24000);
 }
 
 static async Task TypeTextLikeHuman(IPage page, ILocator field, string value)
 {
     await ClickWithMousePath(page, field);
-    await PauseBetweenActionsAsync(250, 700);
+    await PauseBetweenActionsAsync(250, 500);
     await field.PressAsync("Control+A");
-    await PauseBetweenActionsAsync(120, 360);
+    await PauseBetweenActionsAsync(120, 240);
     await field.PressAsync("Backspace");
-    await PauseBetweenActionsAsync(180, 420);
+    await PauseBetweenActionsAsync(180, 360);
 
     foreach (char c in value)
     {
         await field.PressSequentiallyAsync(c.ToString());
-        await PauseBetweenActionsAsync(90, 260);
+        await PauseBetweenActionsAsync(90, 180);
     }
-    await PauseBetweenActionsAsync(280, 780);
+    await PauseBetweenActionsAsync(280, 560);
 }
 
 static async Task ClickWithMousePath(IPage page, ILocator target)
 {
-    await PauseBetweenActionsAsync(280, 900);
+    await PauseBetweenActionsAsync(280, 560);
     await ScrollIntoViewLikeHuman(page, target);
     await target.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
@@ -149,7 +152,7 @@ static async Task ClickWithMousePath(IPage page, ILocator target)
     if (box is null)
     {
         await target.ClickAsync();
-        await PauseBetweenActionsAsync(450, 1200);
+        await PauseBetweenActionsAsync(450, 900);
         return;
     }
 
@@ -167,13 +170,13 @@ static async Task ClickWithMousePath(IPage page, ILocator target)
         float waypointY = (float)Math.Clamp(targetY + (Random.Shared.NextDouble() * 320) - 160, edgePadding, viewportHeight - edgePadding);
 
         await page.Mouse.MoveAsync(waypointX, waypointY, new MouseMoveOptions { Steps = Random.Shared.Next(12, 31) });
-        await PauseBetweenActionsAsync(70, 210);
+        await PauseBetweenActionsAsync(70, 140);
     }
 
     await page.Mouse.MoveAsync(targetX, targetY, new MouseMoveOptions { Steps = Random.Shared.Next(24, 61) });
-    await PauseBetweenActionsAsync(130, 360);
-    await page.Mouse.ClickAsync(targetX, targetY, new MouseClickOptions { Delay = Random.Shared.Next(25, 110) });
-    await PauseBetweenActionsAsync(450, 1300);
+    await PauseBetweenActionsAsync(130, 260);
+    await page.Mouse.ClickAsync(targetX, targetY, new MouseClickOptions { Delay = Random.Shared.Next(25, 51) });
+    await PauseBetweenActionsAsync(450, 900);
 }
 
 static async Task ScrollIntoViewLikeHuman(IPage page, ILocator target)
@@ -198,23 +201,80 @@ static async Task ScrollIntoViewLikeHuman(IPage page, ILocator target)
             float direction = centerY < upperBand ? -1f : 1f;
             float deltaY = direction * Random.Shared.Next(30, 86);
             await page.Mouse.WheelAsync(0, deltaY);
-            await PauseBetweenActionsAsync(140, 320);
+            await PauseBetweenActionsAsync(140, 280);
             continue;
         }
 
         // If no box yet, nudge downward slowly until layout catches up.
         await page.Mouse.WheelAsync(0, Random.Shared.Next(30, 76));
-        await PauseBetweenActionsAsync(160, 340);
+        await PauseBetweenActionsAsync(160, 320);
     }
 
     // Last-resort fallback in case the page structure prevents wheel scrolling to this target.
     await target.ScrollIntoViewIfNeededAsync();
-    await PauseBetweenActionsAsync(280, 520);
+    await PauseBetweenActionsAsync(280, 560);
 }
 
-static Task PauseBetweenActionsAsync(int minMs = 350, int maxMs = 1100)
+static Task PauseBetweenActionsAsync(int minMs = 350, int maxMs = 700)
 {
     return Task.Delay(Random.Shared.Next(minMs, maxMs + 1));
+}
+
+static async Task<(IBrowserContext Context, IBrowser? Browser)> LaunchBrowserContextWithPersistenceAsync(
+    IBrowserType browserType,
+    bool headless,
+    string userAgent,
+    string? configuredUserDataDir)
+{
+    string? userDataDir = ResolvePersistentProfilePath(configuredUserDataDir);
+    if (!string.IsNullOrWhiteSpace(userDataDir))
+    {
+        try
+        {
+            Directory.CreateDirectory(userDataDir);
+            Console.WriteLine($"Using persistent browser profile: {userDataDir}");
+            IBrowserContext persistentContext = await browserType.LaunchPersistentContextAsync(
+                userDataDir,
+                new BrowserTypeLaunchPersistentContextOptions
+                {
+                    Headless = headless,
+                    UserAgent = userAgent
+                });
+
+            return (persistentContext, null);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Persistent profile unavailable ({ex.GetType().Name}); falling back to non-persistent context.");
+        }
+    }
+    else
+    {
+        Console.WriteLine("No persistent profile path available; using non-persistent context.");
+    }
+
+    IBrowser browser = await browserType.LaunchAsync(new BrowserTypeLaunchOptions { Headless = headless });
+    IBrowserContext context = await browser.NewContextAsync(new BrowserNewContextOptions
+    {
+        UserAgent = userAgent
+    });
+    return (context, browser);
+}
+
+static string? ResolvePersistentProfilePath(string? configuredUserDataDir)
+{
+    if (!string.IsNullOrWhiteSpace(configuredUserDataDir))
+    {
+        return configuredUserDataDir;
+    }
+
+    string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    if (!string.IsNullOrWhiteSpace(localAppData))
+    {
+        return Path.Combine(localAppData, "PayPowerBill", "playwright-profile");
+    }
+
+    return null;
 }
 
 async Task SelectAccount(IPage page)
@@ -224,7 +284,7 @@ async Task SelectAccount(IPage page)
     Console.WriteLine("Selecting account (assuming the first one)...");
     await ClickWithMousePath(page, page.GetByRole(AriaRole.Link, new() { Name = "Continue" }));
     Console.WriteLine("Clicking continue...");
-    await PauseBetweenActionsAsync(13000, 18000); // it loads this with ajax so need to wait
+    await PauseBetweenActionsAsync(13000, 26000); // it loads this with ajax so need to wait
 }
 
 async Task SelectPaymentMethod(IPage page)
@@ -243,8 +303,8 @@ async Task ReviewPaymentAndConfirm(IPage page)
 {
     await ClickWithMousePath(page, page.GetByRole(AriaRole.Link, new() { Name = "Continue" }));
     Console.WriteLine("Clicking continue...");
-    await PauseBetweenActionsAsync(10000, 14000);
+    await PauseBetweenActionsAsync(10000, 20000);
     Console.WriteLine("Clicking Pay...");
     await ClickWithMousePath(page, page.GetByRole(AriaRole.Link, new() { Name = "Pay $" }));
-    await PauseBetweenActionsAsync(10000, 14000);
+    await PauseBetweenActionsAsync(10000, 20000);
 }
