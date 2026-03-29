@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Playwright;
+using Soenneker.Playwrights.Extensions.Stealth;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -9,7 +10,23 @@ using HcpVaultSecretsConfigProvider;
 using System.Text.RegularExpressions;
 
 using var playwright = await Playwright.CreateAsync();
-var b = playwright.Firefox;
+var b = playwright.Chromium;
+
+const string StealthScript = @"
+    // Stealth script to avoid detection as automated browser
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => false,
+    });
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+    });
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+    });
+    window.chrome = {
+        runtime: {},
+    };
+";
 if (args.Any() && args?[0] == "install")
 {
     Environment.Exit(Microsoft.Playwright.Program.Main(new[] { "install", b.Name }));
@@ -22,7 +39,7 @@ using IHost host = Host.CreateDefaultBuilder(args)
 // if running locally, you can set the parameters using dotnet user-secrets. If docker, pass in via Env Vars.
 IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
 
-const string windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0";
+const string windowsUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 var browserSetup = await LaunchBrowserContextWithPersistenceAsync(
     b,
     inDocker,
@@ -36,8 +53,7 @@ await LoginToSce(config["SceEmail"] ?? string.Empty, config["ScePassword"] ?? st
 await ExitIfZeroBalanceDueOrLessThanMinimum(page, config["DontPayIfUnder"] ?? "1"); //check balance to avoid using CC if fee outweighs cashback
 await DismissModalIfFound(page);
 
-await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "Make a Payment" }));
-await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "Pay by Card" }));
+await ClickPayWithCreditCardFromHomepage(page);
 await PauseBetweenActionsAsync(14000, 28000); //let the payment page load
 await SelectAccount(page);
 await SelectPaymentMethod(page);
@@ -101,6 +117,72 @@ static async Task ExitIfZeroBalanceDueOrLessThanMinimum(IPage page, string dontP
     }
 }
 
+async Task ClickPayWithCreditCardFromHomepage(IPage page)
+{
+    Console.WriteLine("Clicking credit-card payment shortcut on homepage...");
+
+    (string Label, ILocator Locator)[] candidates =
+    [
+        ("role=button,name='Pay by Credit Card'", page.GetByRole(AriaRole.Button, new() { Name = "Pay by Credit Card" })),
+        ("role=link,name='Pay by Credit Card'", page.GetByRole(AriaRole.Link, new() { Name = "Pay by Credit Card" })),
+        ("role=button,name='Pay with Credit Card'", page.GetByRole(AriaRole.Button, new() { Name = "Pay with Credit Card" })),
+        ("role=link,name='Pay with Credit Card'", page.GetByRole(AriaRole.Link, new() { Name = "Pay with Credit Card" })),
+        ("css a/button has-text 'Pay by Credit Card'", page.Locator("a:has-text(\"Pay by Credit Card\"), button:has-text(\"Pay by Credit Card\")")),
+        ("css a/button has-text 'Pay with Credit Card'", page.Locator("a:has-text(\"Pay with Credit Card\"), button:has-text(\"Pay with Credit Card\")")),
+        ("getByText 'Pay by Credit Card'", page.GetByText("Pay by Credit Card")),
+        ("getByText 'Pay with Credit Card'", page.GetByText("Pay with Credit Card")),
+        ("role=button,text='Credit Card'", page.GetByRole(AriaRole.Button, new() { NameRegex = new System.Text.RegularExpressions.Regex("Credit Card", System.Text.RegularExpressions.RegexOptions.IgnoreCase) })),
+        ("role=link,text='Credit Card'", page.GetByRole(AriaRole.Link, new() { NameRegex = new System.Text.RegularExpressions.Regex("Credit Card", System.Text.RegularExpressions.RegexOptions.IgnoreCase) })),
+    ];
+
+    foreach ((string label, ILocator locator) in candidates)
+    {
+        int count = await locator.CountAsync();
+        Console.WriteLine($"Credit-card shortcut candidate [{label}] count={count}");
+        if (count < 1)
+        {
+            continue;
+        }
+
+        try
+        {
+            await ClickWithMousePath(page, locator.First);
+            Console.WriteLine($"Clicked credit-card shortcut via [{label}].");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Found candidate [{label}] but click failed ({ex.GetType().Name}). Trying next locator...");
+        }
+    }
+
+    // Some homepage widgets are rendered in iframes. Try frame-local selectors as a fallback.
+    foreach (IFrame frame in page.Frames)
+    {
+        ILocator frameCandidates = frame.Locator(
+            "a:has-text(\"Pay by Credit Card\"), button:has-text(\"Pay by Credit Card\"), " +
+            "a:has-text(\"Pay with Credit Card\"), button:has-text(\"Pay with Credit Card\")");
+        int frameCount = await frameCandidates.CountAsync();
+        if (frameCount < 1)
+        {
+            continue;
+        }
+
+        try
+        {
+            await ClickWithMousePath(page, frameCandidates.First);
+            Console.WriteLine("Clicked credit-card shortcut inside iframe.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Found credit-card shortcut inside iframe but click failed ({ex.GetType().Name}).");
+        }
+    }
+
+    throw new ApplicationException("Unable to find a homepage 'Pay by Credit Card'/'Pay with Credit Card' shortcut.");
+}
+
 static async Task LoginToSce(string username, string password, IPage page)
 {
     Console.WriteLine("Preparing to log into SCE.com...");
@@ -120,7 +202,43 @@ static async Task LoginToSce(string username, string password, IPage page)
     ILocator passwordField = page.GetByRole(AriaRole.Textbox, new() { Name = "password" });
     await TypeTextLikeHuman(page, passwordField, password);
 
-    await ClickWithMousePath(page, page.GetByRole(AriaRole.Button, new() { Name = "LOG IN", Exact = true }));
+    Console.WriteLine("Looking for login button...");
+    (string Label, ILocator Locator)[] loginButtonCandidates =
+    [
+        ("role=button,name='LOG IN',exact", page.GetByRole(AriaRole.Button, new() { Name = "LOG IN", Exact = true })),
+        ("role=button,name='LOG IN'", page.GetByRole(AriaRole.Button, new() { Name = "LOG IN" })),
+        ("role=button,name='Log In'", page.GetByRole(AriaRole.Button, new() { Name = "Log In" })),
+        ("role=button,text='LOG IN'", page.GetByRole(AriaRole.Button, new() { NameRegex = new System.Text.RegularExpressions.Regex("LOG IN", System.Text.RegularExpressions.RegexOptions.IgnoreCase) })),
+        ("css button:has-text('LOG IN')", page.Locator("button:has-text(\"LOG IN\")")),
+        ("css button[type='submit']", page.Locator("button[type='submit']")),
+    ];
+
+    bool loginClicked = false;
+    foreach ((string label, ILocator locator) in loginButtonCandidates)
+    {
+        try
+        {
+            int count = await locator.CountAsync();
+            Console.WriteLine($"Login button candidate [{label}] count={count}");
+            if (count > 0)
+            {
+                await ClickWithMousePath(page, locator.First);
+                Console.WriteLine($"Clicked login button via [{label}].");
+                loginClicked = true;
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Login button candidate [{label}] failed: {ex.GetType().Name}");
+        }
+    }
+
+    if (!loginClicked)
+    {
+        throw new ApplicationException("Unable to find and click the login button.");
+    }
+
     Console.WriteLine($"Logging into SCE as {username}...");
     await PauseBetweenActionsAsync(12000, 24000);
 }
@@ -232,14 +350,21 @@ static async Task<(IBrowserContext Context, IBrowser? Browser)> LaunchBrowserCon
         try
         {
             Directory.CreateDirectory(userDataDir);
-            Console.WriteLine($"Using persistent browser profile: {userDataDir}");
+            Console.WriteLine($"Using persistent browser profile with stealth: {userDataDir}");
+            var options = new BrowserTypeLaunchPersistentContextOptions
+            {
+                Headless = headless,
+                UserAgent = userAgent
+            };
             IBrowserContext persistentContext = await browserType.LaunchPersistentContextAsync(
                 userDataDir,
-                new BrowserTypeLaunchPersistentContextOptions
-                {
-                    Headless = headless,
-                    UserAgent = userAgent
-                });
+                options);
+
+            // Apply stealth to all pages in the context
+            foreach (var existingPage in persistentContext.Pages)
+            {
+                await existingPage.AddInitScriptAsync(StealthScript);
+            }
 
             return (persistentContext, null);
         }
@@ -258,6 +383,10 @@ static async Task<(IBrowserContext Context, IBrowser? Browser)> LaunchBrowserCon
     {
         UserAgent = userAgent
     });
+
+    // Apply stealth to pages created from this context
+    await context.AddInitScriptAsync(StealthScript);
+
     return (context, browser);
 }
 
@@ -304,7 +433,43 @@ async Task ReviewPaymentAndConfirm(IPage page)
     await ClickWithMousePath(page, page.GetByRole(AriaRole.Link, new() { Name = "Continue" }));
     Console.WriteLine("Clicking continue...");
     await PauseBetweenActionsAsync(10000, 20000);
-    Console.WriteLine("Clicking Pay...");
-    await ClickWithMousePath(page, page.GetByRole(AriaRole.Link, new() { Name = "Pay $" }));
+
+    Console.WriteLine("Looking for pay button starting with 'Pay $'...");
+    (string Label, ILocator Locator)[] payButtonCandidates =
+    [
+        ("role=link,name starts with 'Pay $'", page.GetByRole(AriaRole.Link, new() { NameRegex = new System.Text.RegularExpressions.Regex("^Pay \\$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) })),
+        ("role=button,name starts with 'Pay $'", page.GetByRole(AriaRole.Button, new() { NameRegex = new System.Text.RegularExpressions.Regex("^Pay \\$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) })),
+        ("getByText 'Pay $'", page.Locator("text=/^Pay \\$/")),
+        ("css button/link contains 'Pay $'", page.Locator("button:has-text(\"Pay $\"), a:has-text(\"Pay $\")")),
+        ("role=button,name='Pay $'", page.GetByRole(AriaRole.Button, new() { Name = "Pay $" })),
+        ("role=link,name='Pay $'", page.GetByRole(AriaRole.Link, new() { Name = "Pay $" })),
+    ];
+
+    bool payClicked = false;
+    foreach ((string label, ILocator locator) in payButtonCandidates)
+    {
+        try
+        {
+            int count = await locator.CountAsync();
+            Console.WriteLine($"Pay button candidate [{label}] count={count}");
+            if (count > 0)
+            {
+                await ClickWithMousePath(page, locator.First);
+                Console.WriteLine($"Clicked pay button via [{label}].");
+                payClicked = true;
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Pay button candidate [{label}] failed: {ex.GetType().Name}");
+        }
+    }
+
+    if (!payClicked)
+    {
+        throw new ApplicationException("Unable to find and click the pay button starting with 'Pay $'.");
+    }
+
     await PauseBetweenActionsAsync(10000, 20000);
 }
